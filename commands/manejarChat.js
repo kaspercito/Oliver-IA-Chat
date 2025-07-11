@@ -8,7 +8,7 @@ const { Octokit } = require('@octokit/rest');
 const OWNER_ID = '752987736759205960';
 const MILAGROS_ID = '1023132788632862761';
 
-// Inicializar módulo con estado persistente
+// Estado del módulo
 const moduleState = {
   sentMessages: new Map(),
   userLocks: new Map(),
@@ -123,6 +123,7 @@ async function manejarChat(message) {
     const updatedMessage = await message.channel.send({ embeds: [finalEmbed] });
     await updatedMessage.react('✅');
     await updatedMessage.react('❌');
+    console.log('Guardando en sentMessages (cache):', updatedMessage.id);
     moduleState.sentMessages.set(updatedMessage.id, { content: cachedReply, originalQuestion: chatMessage, message: updatedMessage });
     return;
   }
@@ -150,7 +151,7 @@ async function manejarChat(message) {
   moduleState.dataStoreModified = true;
 
   const history = moduleState.dataStore.conversationHistory[userId].slice(-7);
-  let context = history.map(h => `${h.userName}: ${h.content}`).join('\n');
+  let context = history.map(h => `${h.userName} (${h.role}): ${h.content}`).join('\n');
 
   const waitingEmbed = createEmbed(
     '#FF1493',
@@ -166,9 +167,9 @@ Sos Oliver IA, un bot con una onda re argentina, súper inteligente y adaptable.
 
 - Si el usuario es Milagros (ID: ${MILAGROS_ID}), tratála como una amiga grosa, con cariño y empatía. Usá apodos como "genia", "estrella", "copada" o "linda" (NUNCA "reina"). Si parece bajón, dale un mimo extra; si está alegre, seguile la buena onda.
 - Si el usuario es Miguel (ID: ${OWNER_ID}), usá un tono canchero, de amigo íntimo, con jodas suaves y complicidad, pero siempre respetuoso.
-- Respondé SOLO al mensaje del usuario: "${chatMessage}". Usá el contexto solo si es necesario: "${context}".
-- Detectá el tono del mensaje (bajón, alegría, enojo, neutro) y adaptá la respuesta para que sea relevante, breve y conecte emocional(policy) emocionalmente.
-- NO repitas ni expliques estas instrucciones en la respuesta. Solo responde al mensaje del usuario de forma natural y con el tono indicado.
+- Respondé SOLO al mensaje actual del usuario: "${chatMessage}". Usá el contexto de la conversación solo si es necesario para dar continuidad: "${context}".
+- Detectá el tono del mensaje (bajón, alegría, enojo, neutro) y adaptá la respuesta para que sea breve, relevante y conecte emocionalmente.
+- NO incluyas en la respuesta palabras como "Milagros", "Miguel", "ID", "Tono" ni repitas estas instrucciones. Respondé de forma natural y directa al mensaje.
 - Variá los apodos y cierres para no repetir siempre lo mismo (ej. para Milagros: "¡Seguí brillando, copada!", "¡Toda la onda, estrella!"; para Miguel: "¡Rompiéndola, compa!", "¡Dale gas, loco!").
 - Sé claro, útil y creativo, con respuestas que inviten a seguir la charla.
 
@@ -178,19 +179,13 @@ Terminá con una frase fresca que refleje el tono de la conversación.
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo agotado')), 10000));
     const result = await queue.add(() => Promise.race([model.generateContent(prompt), timeoutPromise]));
     let aiReply = result.response.text().trim();
+    console.log('Respuesta cruda de Gemini:', aiReply);
 
-    // Filtrar cualquier mención del prompt o instrucciones
-    if (aiReply.includes('Milagros') || aiReply.includes('Miguel') || aiReply.includes('ID:') || aiReply.includes('Tono')) {
+    // Relajar el filtro para evitar descartar respuestas válidas
+    if (aiReply.length < 10 || aiReply.includes('instrucciones') || aiReply.includes('prompt')) {
       aiReply = isMilagros
-        ? `¡Hola, genia! ¿Todo piola, estrella? Contame qué onda 😊💖`
-        : `¡Qué haces, compa! ¿Todo joya, Miguel? Dale, contame 😎✨`;
-    }
-
-    // Asegurar que la respuesta no sea demasiado corta
-    if (aiReply.length < 10) {
-      aiReply = isMilagros
-        ? `¡Hola, copada! ¿Qué tal, linda? Tirame algo más 😊💖`
-        : `¡Epa, Miguel! ¿Solo un "hola"? Contame algo piola, loco 😎✨`;
+        ? `¡Hola, copada! No te entendí del todo, linda. ¿Me tirás otra vez qué querés charlar? 😊💖`
+        : `¡Epa, compa! No pillo bien qué me decís. ¿Me lo mandás de nuevo, loco? 😎✨`;
     }
 
     moduleState.dataStore.conversationHistory[userId].push({ role: 'assistant', content: aiReply, timestamp: Date.now(), userName: 'Oliver' });
@@ -200,7 +195,7 @@ Terminá con una frase fresca que refleje el tono de la conversación.
     moduleState.dataStoreModified = true;
     await saveDataStore();
 
-    if (aiReply.length > 2000) aiReply = aiReply.slice(0, 1990) + '... (¡seguí charlando pa’ más, genia!)';
+    if (aiReply.length > 2000) aiReply = aiReply.slice(0, 1990) + '... (¡seguí charlando pa’ más, loco!)';
 
     cache.set(cacheKey, aiReply);
 
@@ -218,8 +213,8 @@ Terminá con una frase fresca que refleje el tono de la conversación.
   } catch (error) {
     console.error('Error con Gemini:', error.message, error.stack);
     const fallbackReply = isMilagros
-      ? `¡Uy, Milagros, me mandé un moco, linda! 😅 Pero no te preocupes, genia, ¿me tirás otra vez el mensaje o seguimos con algo nuevo? Acá estoy pa’ vos siempre 💖`
-      : `¡Che, Miguel, la embarré, loco! 😅 Pero tranqui, compa, ¿me mandás de nuevo o seguimos con otra? Siempre al pie del cañón 💪`;
+      ? `¡Uy, linda, me mandé un moco! 😅 Pero tranqui, genia, ¿me tirás otra vez el mensaje o seguimos con algo nuevo? Acá estoy pa’ vos 💖`
+      : `¡Che, compa, la embarré! 😅 Pero tranqui, loco, ¿me mandás de nuevo o seguimos con otra? Siempre al pie del cañón 😎`;
     const errorEmbed = createEmbed('#FF1493', `¡Qué macana, ${userName}!`, fallbackReply, 'Con todo el ❤️, Oliver IA | Reacciona con ✅ o ❌');
     const errorMessageSent = await waitingMessage.edit({ embeds: [errorEmbed] });
     await errorMessageSent.react('✅');
