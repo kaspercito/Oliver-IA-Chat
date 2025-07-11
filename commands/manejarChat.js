@@ -15,7 +15,6 @@ const sentMessages = new Map();
 let dataStore = { conversationHistory: {}, userStatus: {} };
 let dataStoreModified = false;
 
-// Simulación de createEmbed y sendError (ajustá según tu implementación)
 function createEmbed(color, title, description, footer) {
     return {
         color: parseInt(color.replace('#', ''), 16),
@@ -35,7 +34,7 @@ async function sendError(channel, description) {
 
 async function manejarChat(message) {
     const userId = message.author.id;
-    const userName = userId === OWNER_ID ? 'Miguel' : 'Milagros';
+    const userName = 'Milagros';
     const chatMessage = message.content.startsWith('!chat') ? message.content.slice(5).trim() : message.content.slice(3).trim();
 
     if (!chatMessage) {
