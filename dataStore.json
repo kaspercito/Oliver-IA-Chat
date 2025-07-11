@@ -48,6 +48,12 @@
         "content": "Hola Oliver HOLA",
         "timestamp": 1752251263733,
         "userName": "Miguel"
+      },
+      {
+        "role": "user",
+        "content": "Hola?",
+        "timestamp": 1752251512338,
+        "userName": "Miguel"
       }
     ]
   },
