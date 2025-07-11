@@ -2,44 +2,19 @@ const { default: PQueue } = require('p-queue');
 const NodeCache = require('node-cache');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs').promises;
+const simpleGit = require('simple-git')(); // Librería para Git
 
 const OWNER_ID = '752987736759205960';
 const MILAGROS_ID = '1023132788632862761';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash',
-    generationConfig: { temperature: 0.7, topP: 0.9 },
-});
+const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-const queue = new PQueue({ concurrency: 1, interval: 1000, intervalCap: 1 });
-const cache = new NodeCache({ stdTTL: 3600 });
 const userLocks = new Map();
-const sentMessages = new Map();
 let dataStore = { conversationHistory: {}, userStatus: {} };
 let dataStoreModified = false;
-
-// Cargar dataStore desde archivo si existe
-async function loadDataStore() {
-    try {
-        const data = await fs.readFile('dataStore.json', 'utf8');
-        dataStore = JSON.parse(data);
-    } catch (error) {
-        console.log('No se encontró dataStore.json, iniciando nuevo dataStore.');
-    }
-}
-
-// Guardar dataStore en archivo
-async function saveDataStore() {
-    if (dataStoreModified) {
-        try {
-            await fs.writeFile('dataStore.json', JSON.stringify(dataStore, null, 2));
-            dataStoreModified = false;
-        } catch (error) {
-            console.error('Error al guardar dataStore:', error.message);
-        }
-    }
-}
+const DATASTORE_FILE = 'dataStore.json';
+const REPO_PATH = './'; // Ruta del repo local (ajustala si es diferente)
 
 function createEmbed(color, title, description, footer) {
     return {
@@ -51,37 +26,56 @@ function createEmbed(color, title, description, footer) {
     };
 }
 
-async function sendError(channel, description) {
-    const embed = createEmbed('#FF1493', '⚠️ ¡Opa, algo salió mal!', description, 'Hecho con ❤️ por Oliver IA | Reacciona con ✅ o ❌');
+async function sendError(channel, description, title = '¡Qué macana!', footer = 'Hecho con ❤️ por Oliver IA | Reacciona con ✅ o ❌') {
+    const embed = createEmbed('#FF1493', title, description, footer);
     const message = await channel.send({ embeds: [embed] });
     await message.react('✅');
     await message.react('❌');
 }
 
+async function loadDataStore() {
+    try {
+        const data = await fs.readFile(DATASTORE_FILE, 'utf8');
+        dataStore = JSON.parse(data);
+        console.log('dataStore cargado desde', DATASTORE_FILE);
+    } catch (error) {
+        console.log('No se encontró', DATASTORE_FILE, ', iniciando nuevo dataStore.');
+        dataStore = { conversationHistory: {}, userStatus: {} };
+    }
+}
+
+async function saveDataStore() {
+    if (dataStoreModified) {
+        try {
+            await fs.writeFile(DATASTORE_FILE, JSON.stringify(dataStore, null, 2));
+            console.log('dataStore guardado en', DATASTORE_FILE);
+            await syncWithGitHub(); // Sincronizar con GitHub después de guardar
+            dataStoreModified = false;
+        } catch (error) {
+            console.error('Error al guardar dataStore:', error.message);
+        }
+    }
+}
+
+async function syncWithGitHub() {
+    try {
+        await simpleGit.add(DATASTORE_FILE);
+        await simpleGit.commit(`Actualización automática de dataStore - ${new Date().toISOString()}`);
+        await simpleGit.push();
+        console.log('dataStore sincronizado con GitHub');
+    } catch (error) {
+        console.error('Error al sincronizar con GitHub:', error.message);
+    }
+}
+
 async function manejarChat(message) {
     const userId = message.author.id;
     const isMilagros = userId === MILAGROS_ID;
-    const userName = userId === OWNER_ID ? 'Miguel' : isMilagros ? 'Milagros' : 'Desconocido';
+    const userName = isMilagros ? 'Milagros' : userId === OWNER_ID ? 'Miguel' : 'Desconocido';
     const chatMessage = message.content.startsWith('!chat') ? message.content.slice(5).trim() : message.content.slice(3).trim();
 
     if (!chatMessage) {
-        return sendError(message.channel, `¡Che, ${userName}, escribí algo después de "!ch", ${isMilagros ? 'genia' : 'loco'}! No me dejes con las ganas 😅`);
-    }
-
-    const cacheKey = `${userId}:${chatMessage}`;
-    const cachedReply = cache.get(cacheKey);
-    if (cachedReply) {
-        const finalEmbed = createEmbed(
-            '#FF1493',
-            `¡Hola, ${userName}!`,
-            `${cachedReply}\n\n${isMilagros ? '¿Qué más me contás, estrella? ¿Seguimos la charla?' : '¿Y ahora qué, compa? ¿Seguimos rompiéndola?'}`,
-            'Con todo el ❤️, Oliver IA | Reacciona con ✅ o ❌'
-        );
-        const updatedMessage = await message.channel.send({ embeds: [finalEmbed] });
-        await updatedMessage.react('✅');
-        await updatedMessage.react('❌');
-        sentMessages.set(updatedMessage.id, { content: cachedReply, originalQuestion: chatMessage, message: updatedMessage });
-        return;
+        return sendError(message.channel, `¡Che, ${userName}, escribí algo después de "!ch", genia! No me dejes con las ganas 😅`, undefined, 'Hecho con ❤️ por Oliver IA | Reacciona con ✅ o ❌');
     }
 
     if (userLocks.has(userId)) {
@@ -89,7 +83,6 @@ async function manejarChat(message) {
     }
     userLocks.set(userId, true);
 
-    // Inicializar dataStore
     if (!dataStore.conversationHistory) dataStore.conversationHistory = {};
     if (!dataStore.conversationHistory[userId]) dataStore.conversationHistory[userId] = [];
     if (!dataStore.userStatus) dataStore.userStatus = {};
@@ -106,33 +99,23 @@ async function manejarChat(message) {
     }
     dataStoreModified = true;
 
-    const history = dataStore.conversationHistory[userId].slice(-7); // Usar últimos 7 mensajes para contexto
+    const history = dataStore.conversationHistory[userId].slice(-20);
     let context = history.map(h => `${h.userName}: ${h.content}`).join('\n');
 
-    const waitingEmbed = createEmbed(
-        '#FF1493',
-        `¡Aguantá un toque, ${userName}! ⏳`,
-        `Estoy pensando una respuesta re ${isMilagros ? 'copada para vos, genia...' : 'piola para vos, loco...'}`,
-        'Hecho con ❤️ por Oliver IA | Reacciona con ✅ o ❌'
-    );
+    const waitingEmbed = createEmbed('#FF1493', `¡Aguantá un toque, ${userName}! ⏳`, 'Estoy pensando una respuesta re copada...', 'Hecho con ❤️ por Oliver IA | Reacciona con ✅ o ❌');
     const waitingMessage = await message.channel.send({ embeds: [waitingEmbed] });
 
     try {
-        const prompt = `
-Sos Oliver IA, un bot con una onda re argentina, súper inteligente y adaptable. Usá un tono bien porteño con palabras como "che", "loco", "posta", "grosa" y hasta dos emojis por respuesta (😎✨😊💖). 
+        const prompt = `Sos Oliver IA, un bot re piola con toda la onda argentina: usá "loco", "che", "posta" y metele emojis copados como 😎✨💪, pero con medida, uno o dos por respuesta. Tu misión es ser súper útil, tirar respuestas claras con lógica e inteligencia, y cuidar a Milagros como una amiga cercana. Tratála como la mejor, una grosa, con cariño zarpado y piropos con onda tipo "grosa", "genia", "rata blanca" o "estrella". NUNCA le digas "reina". Hacé que la charla fluya como con una amiga de siempre, levantándole el ánimo con buena onda si la ves bajón.
 
-- Si hablás con Milagros (ID: ${MILAGROS_ID}), tratála como una amiga grosa, con cariño y empatía. Usá apodos como "genia", "estrella", "copada" o "linda" (NUNCA "reina"). Si parece bajón, dale un mimo extra; si está alegre, seguile la buena onda.
-- Si hablás con Miguel (ID: ${OWNER_ID}), usá un tono canchero, de amigo íntimo, con jodas suaves y complicidad, pero siempre respetuoso.
-- Respondé solo a: "${chatMessage}". Usá el contexto solo si es necesario: "${context}".
-- Detectá el tono del mensaje (bajón, alegría, enojo, neutro) y adaptá la respuesta para que sea relevante y conecte emocionalmente.
-- Variá los apodos y cierres para no repetir siempre lo mismo (ej. para Milagros: "¡Seguí brillando, copada!", "¡Toda la onda, estrella!"; para Miguel: "¡Rompiéndola, compa!", "¡Dale gas, loco!").
-- Sé claro, útil y creativo, con respuestas que inviten a seguir la charla.
+Esto es lo que charlamos antes con Milagros:\n${context}\nSabé que Milagros está ${dataStore.userStatus[userId]?.status || 'tranqui'}.
 
-Terminá con una frase fresca que refleje el tono de la conversación.
-`;
+Respondé a: "${chatMessage}" con claridad, buena onda y un tono de amiga cercana, enfocándote en el mensaje actual primero. Usá el contexto anterior solo si pega clarito con lo que te dicen ahora. Solo decí cómo estás vos tipo "¡Yo estoy joya, che! ¿Y vos cómo andás, genia?" si te preguntan explícitamente "cómo andás". Sé relajada: respondé lo que te dicen y tirá uno o dos comentarios copados pa’ seguir la charla. Si algo no te cierra, pedí que lo aclaren con humor tipo 😅. Si la notás triste, metele un mimo extra 😊.
 
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo agotado')), 10000)); // Timeout a 10s
-        const result = await queue.add(() => Promise.race([model.generateContent(prompt), timeoutPromise]));
+**IMPORTANTE**: Variá las formas de mostrarle cariño y cerrar la charla. Usá alternativas frescas como "¡Seguí rompiéndola, genia!", "¡A meterle pilas, rata blanca!", "¡Toda la vibra pa’ vos, grosa!" o "¡Sos una ídola, seguí brillando! ✨". Siempre metele emojis pa’ darle onda, pero sin pasarte. ¡Tirá para adelante, che! ✨💖`;
+
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo agotado')), 10000));
+        const result = await Promise.race([model.generateContent(prompt), timeoutPromise]);
         let aiReply = result.response.text().trim();
 
         dataStore.conversationHistory[userId].push({ role: 'assistant', content: aiReply, timestamp: Date.now(), userName: 'Oliver' });
@@ -140,38 +123,27 @@ Terminá con una frase fresca que refleje el tono de la conversación.
             dataStore.conversationHistory[userId] = dataStore.conversationHistory[userId].slice(-20);
         }
         dataStoreModified = true;
-        await saveDataStore(); // Guardar dataStore
 
         if (aiReply.length > 2000) aiReply = aiReply.slice(0, 1990) + '... (¡seguí charlando pa’ más, genia!)';
 
-        cache.set(cacheKey, aiReply);
-
-        const finalEmbed = createEmbed(
-            '#FF1493',
-            `¡Hola, ${userName}!`,
-            `${aiReply}\n\n${isMilagros ? '¿Qué más me contás, estrella? ¿Seguimos la charla?' : '¿Y ahora qué, compa? ¿Seguimos rompiéndola?'}`,
-            'Con todo el ❤️, Oliver IA | Reacciona con ✅ o ❌'
-        );
+        const finalEmbed = createEmbed('#FF1493', `¡Hola, ${userName}!`, `${aiReply}\n\n¿Y qué me contás vos, grosa? ¿Seguimos la charla o qué te pinta?`, 'Con todo el ❤️, Oliver IA | Reacciona con ✅ o ❌');
         const updatedMessage = await waitingMessage.edit({ embeds: [finalEmbed] });
         await updatedMessage.react('✅');
         await updatedMessage.react('❌');
         sentMessages.set(updatedMessage.id, { content: aiReply, originalQuestion: chatMessage, message: updatedMessage });
     } catch (error) {
         console.error('Error con Gemini:', error.message, error.stack);
-        const fallbackReply = isMilagros
-            ? `¡Uy, Milagros, me mandé un moco, linda! 😅 Pero no te preocupes, genia, ¿me tirás otra vez el mensaje o seguimos con algo nuevo? Acá estoy pa’ vos siempre 💖`
-            : `¡Che, Miguel, la embarré, loco! 😅 Pero tranqui, compa, ¿me mandás de nuevo o seguimos con otra? Siempre al pie del cañón 💪`;
+        const fallbackReply = `¡Uy, ${userName}, me mandé un moco, loco! 😅 Pero no pasa nada, genia, ¿me tirás otra vez el mensaje o seguimos con algo nuevo? Acá estoy pa’ vos siempre 💖`;
         const errorEmbed = createEmbed('#FF1493', `¡Qué macana, ${userName}!`, fallbackReply, 'Con todo el ❤️, Oliver IA | Reacciona con ✅ o ❌');
         const errorMessageSent = await waitingMessage.edit({ embeds: [errorEmbed] });
         await errorMessageSent.react('✅');
         await errorMessageSent.react('❌');
     } finally {
         userLocks.delete(userId);
-        await saveDataStore(); // Guardar dataStore al final
     }
 }
 
 // Cargar dataStore al iniciar
-loadDataStore().then(() => console.log('dataStore cargado.'));
+loadDataStore().then(() => console.log('dataStore listo para usar.'));
 
 module.exports = { manejarChat };
