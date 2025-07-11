@@ -24,6 +24,12 @@
         "content": "¡Qué haces, compa! ¿Todo joya, Miguel? Dale, contame 😎✨",
         "timestamp": 1752250517797,
         "userName": "Oliver"
+      },
+      {
+        "role": "user",
+        "content": "como estas funcionando",
+        "timestamp": 1752250987383,
+        "userName": "Miguel"
       }
     ]
   },
