@@ -1,0 +1,21 @@
+{
+  "name": "oliver-ia-chat",
+  "version": "1.0.0",
+  "description": "Bot de Discord para chat exclusivo para Milagros",
+  "main": "index.js",
+  "scripts": {
+    "start": "pm2-runtime start index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.2",
+    "dotenv": "^16.4.5",
+    "@google/generative-ai": "^0.21.0",
+    "express": "^4.21.0",
+    "p-queue": "^8.0.1",
+    "node-cache": "^5.1.2",
+    "pm2": "^5.4.2"
+  },
+  "author": "Miguel",
+  "license": "ISC",
+  "private": true
+}
