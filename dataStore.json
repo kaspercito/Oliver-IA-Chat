@@ -1,0 +1,24 @@
+{
+  "conversationHistory": {
+    "752987736759205960": [
+      {
+        "role": "user",
+        "content": "Hola",
+        "timestamp": 1752250506015,
+        "userName": "Miguel"
+      },
+      {
+        "role": "assistant",
+        "content": "¡Qué haces, compa! ¿Todo joya, Miguel? Dale, contame 😎✨",
+        "timestamp": 1752250507613,
+        "userName": "Oliver"
+      }
+    ]
+  },
+  "userStatus": {
+    "752987736759205960": {
+      "status": "tranqui",
+      "timestamp": 1752250506015
+    }
+  }
+}
