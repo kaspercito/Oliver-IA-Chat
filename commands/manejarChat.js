@@ -2,6 +2,9 @@ const { default: PQueue } = require('p-queue');
 const NodeCache = require('node-cache');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+
+const OWNER_ID = '752987736759205960';
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({
     model: 'gemini-1.5-flash',
