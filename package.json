@@ -7,6 +7,7 @@
     "start": "pm2-runtime start index.js"
   },
   "dependencies": {
+    "@octokit/rest": "^21.0.2",
     "discord.js": "^14.16.2",
     "dotenv": "^16.4.5",
     "@google/generative-ai": "^0.21.0",
