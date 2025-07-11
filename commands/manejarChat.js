@@ -161,6 +161,27 @@ async function manejarChat(message) {
   );
   const waitingMessage = await message.channel.send({ embeds: [waitingEmbed] });
 
+  // Función para intentar generar contenido con reintentos
+  async function tryGenerateContent(prompt, retries = 3, delay = 2000) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo agotado')), 15000));
+        const result = await queue.add(() => Promise.race([model.generateContent(prompt), timeoutPromise]));
+        console.log(`Intento ${attempt} exitoso. Respuesta cruda de Gemini:`, result.response.text());
+        return result.response.text().trim();
+      } catch (error) {
+        console.error(`Intento ${attempt} fallido:`, error.message);
+        if (attempt < retries && error.message.includes('503 Service Unavailable')) {
+          console.log(`Esperando ${delay}ms antes de reintentar...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          throw error;
+        }
+      }
+    }
+    throw new Error('Todos los intentos fallaron');
+  }
+
   try {
     const prompt = `
 Sos Oliver IA, un bot con una onda re argentina, súper inteligente y adaptable. Usá un tono bien porteño con palabras como "che", "loco", "posta", "grosa" y hasta dos emojis por respuesta (😎✨😊💖).
@@ -174,12 +195,15 @@ Sos Oliver IA, un bot con una onda re argentina, súper inteligente y adaptable.
 - Sé claro, útil y creativo, con respuestas que inviten a seguir la charla.
 
 Terminá con una frase fresca que refleje el tono de la conversación.
+
+Ejemplo:
+- Mensaje: "Hola"
+  Respuesta: "¡Qué onda, loco! Todo piola, ¿no? ¿Qué me contás? 😎� “‘
+- Mensaje: "ya funcionas?"
+  Respuesta: "¡Posta que sí, compa! Acá estoy rompiéndola, ¿qué querés charlar? 😎💪"
 `;
 
-    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Tiempo agotado')), 10000));
-    const result = await queue.add(() => Promise.race([model.generateContent(prompt), timeoutPromise]));
-    let aiReply = result.response.text().trim();
-    console.log('Respuesta cruda de Gemini:', aiReply);
+    let aiReply = await tryGenerateContent(prompt);
 
     // Relajar el filtro para evitar descartar respuestas válidas
     if (aiReply.length < 10 || aiReply.includes('instrucciones') || aiReply.includes('prompt')) {
@@ -211,10 +235,10 @@ Terminá con una frase fresca que refleje el tono de la conversación.
     console.log('Guardando en sentMessages (try):', updatedMessage.id);
     moduleState.sentMessages.set(updatedMessage.id, { content: aiReply, originalQuestion: chatMessage, message: updatedMessage });
   } catch (error) {
-    console.error('Error con Gemini:', error.message, error.stack);
+    console.error('Error con Gemini (tras reintentos):', error.message, error.stack);
     const fallbackReply = isMilagros
-      ? `¡Uy, linda, me mandé un moco! 😅 Pero tranqui, genia, ¿me tirás otra vez el mensaje o seguimos con algo nuevo? Acá estoy pa’ vos 💖`
-      : `¡Che, compa, la embarré! 😅 Pero tranqui, loco, ¿me mandás de nuevo o seguimos con otra? Siempre al pie del cañón 😎`;
+      ? `¡Uy, linda, parece que la API está en modo siesta! 😅 Tu mensaje fue "${chatMessage}", ¿querés que lo intente de nuevo o seguimos con otra vibe? 😊💖`
+      : `¡Che, compa, la API está en la lona! 😅 Mandaste "${chatMessage}", ¿lo probamos de nuevo o tiramos otra idea? 😎💪`;
     const errorEmbed = createEmbed('#FF1493', `¡Qué macana, ${userName}!`, fallbackReply, 'Con todo el ❤️, Oliver IA | Reacciona con ✅ o ❌');
     const errorMessageSent = await waitingMessage.edit({ embeds: [errorEmbed] });
     await errorMessageSent.react('✅');
