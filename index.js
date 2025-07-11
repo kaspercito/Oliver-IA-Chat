@@ -15,8 +15,14 @@ const CHAT_CHANNEL_ID = '1343749554905940058';
 
 // Servidor HTTP para Render
 const app = express();
-app.get('/health', (req, res) => res.send('OK'));
-app.listen(process.env.PORT || 10000, () => console.log('Health endpoint running on port', process.env.PORT || 10000));
+app.get('/ping', (req, res) => {
+    console.log('Recibí un ping, ¡estoy vivo!');
+    res.send('¡Bot awake y con pilas!');
+});
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => {
+    console.log(`Servidor de ping corriendo en el puerto ${PORT}`);
+});
 
 client.on('ready', () => {
     console.log(`Bot de chat conectado como ${client.user.tag}`);
