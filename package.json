@@ -13,7 +13,8 @@
     "express": "^4.21.0",
     "p-queue": "^8.0.1",
     "node-cache": "^5.1.2",
-    "pm2": "^5.4.2"
+    "pm2": "^5.4.2",
+    "simple-git": "^3.19.1"
   },
   "author": "Miguel",
   "license": "ISC",
